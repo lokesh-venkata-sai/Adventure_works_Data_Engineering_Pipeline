@@ -52,7 +52,7 @@ Create azure datafactory --> `lmamidi-adf-aw`
     
         ![alt text](publish.png)
     
-    - since we have around 8 file we need to create 8 different pipelines. But this is not a standard approach. We should create a Dynamic pipeline.
+    - since we have around 10 files we need to create 10 different pipelines. But this is not a standard approach. We should create a Dynamic pipeline.
 
     ### To create dynamic pipeline
 
@@ -92,6 +92,8 @@ Create azure datafactory --> `lmamidi-adf-aw`
     - Now, click on "Debug" to run the pipeline. 
     - You can check that files will be present inside the data lake storage.
 
+### Azure Databricks (Silver Layer)
+
 Create Azure Databricks resource --> `adb-aw-project`
 
 - Pricing Tier: Trail (14 days Free)
@@ -109,7 +111,7 @@ Create Azure Databricks resource --> `adb-aw-project`
 - Now, we need to setup permissions for databricks to access the data lake
     - First way: we can use microsoft entra ID to create an service application to be kept in between Databricks and datalake
     - Another way: We can use azure storage access key to access data lake
-        - Run this code in spar
+        - Run this code in notebook
         ```python
         spark.conf.set(
             "fs.azure.account.key.<storage-account>.dfs.core.windows.net", "<storage-account-access-key>"
@@ -118,4 +120,81 @@ Create Azure Databricks resource --> `adb-aw-project`
 - In Workspace Tab, create a folder `AW_Project`
 - In `AW_Project`, create a notebook `silver_layer`
     - In top, connect to cluster `AWProjectCluster`
+    - Now write a code for transformations and then write the transformed data into `silver` container of datalake storage `lmamidiawstorage`
+    - refer to `Scripts/silver_layer.ipynb` file for code
+
+### Synapse Analytics  (For Gold Layer)
+- Now, create a resource --> Azure Synapse Analytics
+    - Resource group: `AWPROJECT`
+    - Managed resource group: `rg-managed-awproject-synapse`
+    - Workspace name: `lmamidi-awproject-synapse`
+    - Select Data Lake storage -->
+        - Account Name: create new --> `lmamididefaultsynapse`
+        - File system name: create new --> `defaultsynapsefile`
+    - Click Next
+    - In security tab, 
+        - SQl Server admin login name: `adminlokesh`
+        - SQL pwd: <some-password>
+    - Create
+
+- Connect Azure Synapse Analytics to Data Lake
+    - Go to data lake storage --> Access Control (IAM) -->
+(+) Add Role Assignment --> Select Role `Storage Blob Data Contributor`
+    - Next, Select "Managed Identity"
+    - Members: + Select Members
+        - Managed Identity: Synapse Workspace
+        - Select `lmamidi-awproject-synapse`
+    - Review + Assign
+
+    - Go to data lake storage --> Access Control (IAM) -->
+(+) Add Role Assignment --> Select Role `Storage Blob Data Contributor`
+    - Next, Select "User, group, or service principal"
+    - Members: + Select Members
+        - select <your-azure-account-emailID>
+    - Review + Assign
+
+- In Azure Synapse Analytics
+    - In Develop tab, Add SQL Script
+    - In Data tab, Create SQL database --> "Serverless" --> Database name: `aw_database` --> create
+    - Now, In SQL Script, we can see the database we created. Select `aw_database` for the script to use.
+        - Use `OPENROWSET` function to see the data from data lake
+        - Get URL of a folder from data lake using properties example: https://lmamidiawstorage.blob.core.windows.net/silver/AdventureWorks_Calendar/
+        - Replace `blob` with `dfs`. So, result will be example: https://lmamidiawstorage.dfs.core.windows.net/silver/AdventureWorks_Calendar/
+        - Mention the above url in `OPENROWSET` to read data.
+        - Example SQL query
+            ```sql 
+            SELECT 
+                * 
+            FROM 
+                OPENROWSET(
+                        BULK 'https://lmamidiawstorage.dfs.core.windows.net/silver/AdventureWorks_Calendar/',
+                        FORMAT = 'PARQUET'
+                ) as query1
+    - Now, create views for all the data files from silver layer
+        - Refer to `Create_views_gold.sql` file
+    - Create External Tables (3 steps)
+        - Credential
+        - External Data Source
+        - External File Format
+    - Let's create
+        - First setup master key
+            ```sql
+            CREATE MASTER KEY ENCRYPTION BY PASSWORD ='<some-password>'
+        - Setup data source for silver, gold layers
+        - Setup file format
+        - Refer to `create_exteral_table.sql` file for code
+        - Now, we create external tables using `CETAS` from views we have created
+
+- Now, Install Power BI Desktop
+- Connect Power BI to the data
+    - Get serverless SQL Endpoint from azure synapse resource
+    - Click on Get Data in blank report --> Select Azure --> Azure Synapse Analytics SQL --> Connect
+        - Paste the Endpoint there
+        - Ex: lmamidi-awproject-synapse-ondemand.sql.azuresynapse.net
+    - Select `gold.extsales` table and load
+
+### Sample Power BI report
+![alt text](pbi.png)
+    
+
 
