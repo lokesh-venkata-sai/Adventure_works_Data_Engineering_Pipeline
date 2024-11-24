@@ -1,106 +1,116 @@
 # Azure End-to-End Data Engineering Pipeline
 
-Data Source: https://www.kaggle.com/datasets/ukveteran/adventure-works
+This project demonstrates an end-to-end data engineering pipeline on Azure, using the Adventure Works dataset. It covers data ingestion, storage, transformation, and visualization.
+
+## Data Source
+
+[Adventure Works Dataset on Kaggle](https://www.kaggle.com/datasets/ukveteran/adventure-works)
 
 ## Architecture
 
-![alt text](arch.png)
+![Architecture Diagram](arch.png)
 
-## Steps followed:
+## Tech Stack
 
-Create resource group --> `AWPROJECT`
+- **Azure Data Factory**: Data integration and workflow orchestration.
+- **Azure Data Lake Storage Gen2**: Highly scalable and secure data storage.
+- **Azure Databricks**: Data engineering, transformation, and aggregation.
+- **Azure Synapse Analytics**: Data warehousing and analytics service.
+- **Power BI**: Data visualization and business intelligence.
+- **SQL**: Storing processed data for analysis (Gold Layer).
+- **Pyspark**: For Transformations in Silver Layer.
 
-Inside resource group --> we can create different resources
 
-Create storage account --> `lmamidiawstorage`
-- Primary service: Azure Data Lake storage Gen 2
-- Performance: standard
-- Redundancy: Locally-redundant storage (LRS)
-- Enable hierarchical namespace --> This will create Data lake insetad of blob storage
-- Access tier: `Hot`
-- Then create
+## Steps Followed
 
-Create azure datafactory --> `lmamidi-adf-aw`
+### Setup Resources
 
-- In Azure storage account --> Left side pane: In data storage --> click on containers
-    - create 3 containers for `bronze`, `silver`, `gold` layers
+- **Create Resource Group**: `AWPROJECT`
+- **Create Storage Account**: `lmamidiawstorage`
+  - Primary Service: Azure Data Lake Storage Gen 2
+  - Performance: Standard
+  - Redundancy: Locally-redundant storage (LRS)
+  - Enable hierarchical namespace: This option creates a Data Lake instead of blob storage.
+  - Access Tier: Hot
 
-- In Azure Datafactory, Open azure data factory studio
-    - In Manage tab: Create `linked service`
-        - Pick `http` for data source
-        - Name: `httplinkedservice`
-        - Base URL: `https://raw.githubusercontent.com`
-        - Authentication type: Anonymous
-    - In Manage tab: Create `linked service`
-        - Pick `Azure Data Lake Storage Gen2` for data source
-        - Name: `datalakelinkedservice`
-        - Storage accoount name: `lmamidiawstorage`
-    
-    ### To create static pipeline (To copy data from source to destination)
+- **Create Azure Data Factory**: `lmamidi-adf-aw`
+  - Navigate to the storage account, under Data Storage, click on Containers to create `bronze`, `silver`, and `gold` layers.
 
-    - In Author tab: create a pipleine `GitToRaw`
-        - Drag "Copy Data" activity and name it as `CopyRawData`
-            - In "source" tab, create new data source `http` and file format as `csv` ---> Name: `ds_http`
-                - Linked service: select `httplinkedservice`
-                - Relative URL: `lokesh-venkata-sai/Adventure_works_Data_Engineering_Pipeline/refs/heads/main/Data/AdventureWorks_Products.csv`
-                - click OK
-            - In "sink" tab, create a new sink data source `Azure Data Lake Storage Gen2` and format as `csv` ---> Name: `ds_raw`
-                - Linked service: `datalakelinkedservice`
-                - File path: `bronze`/`products`/`products.csv`
-        - Click on "Debug" --> To run the pipeline
-    - "Publish all"
-    
-        ![alt text](publish.png)
-    
-    - since we have around 10 files we need to create 10 different pipelines. But this is not a standard approach. We should create a Dynamic pipeline.
 
-    ### To create dynamic pipeline
+### Azure Data Factory Configuration
 
-    - In Author tab: create a pipleine `DynamicGitToRaw`
-        - Drag "Copy Data" activity and name it as `DynamicCopyRawData`
-            - In "source" tab, create new data source `http` and file format as `csv` ---> Name: `ds_http_dynamic`
-                - Linked service: select `httplinkedservice`
-                - In Advanced: Click on "Open this dataset"
-                - Relative URL --> Add Dynamic content
-                - Create a new parameter `p_rel_url` of `string` type
-                - click on `p_rel_url` and OK
-            - In "sink" tab, create a new sink data source `Azure Data Lake Storage Gen2` and format as `csv` ---> Name: `ds_raw_dynamic`
-                - Linked service: `datalakelinkedservice`
-                - In Advanced: Click on "Open this dataset"
-                - File path: file system -> `bronze`
-                - Directory -> add dynamic content -> Create a new parameter `p_sink_folder` of `string` type
-                - File name -> add dynamic content -> Create a new parameter `p_file_name` of `string` type
-            ![alt text](dynamic_filenames.png)
-            - Now if we see the source, sink tab in total we need to provide 3 parameters as inputs for copy activity `p_rel_url`, `p_sink_folder`, `p_file_name`
-        - Before proceeding further let's upload a `git.json` file to azure in data lake storage by creating a `parameters` container
-        - Drag "lookup" acticity and name as `LookupGit`
-            - In settings, create a new sink data source `Azure Data Lake Storage Gen2` and format as `json` ---> Name: `ds_git_parameters`
+- Open azure data factory studio and **Create 2 Linked Services**:
+  - **Source: HTTP**:
+    - Name: `httplinkedservice`
+    - Base URL: `https://raw.githubusercontent.com`
+    - Authentication: Anonymous
+  - **Source: Azure Data Lake Storage Gen2**:
+    - Name: `datalakelinkedservice`
+    - Storage Account Name: `lmamidiawstorage`
+
+#### Static Pipeline (To copy data from source to destination)
+
+- In Author tab: create a pipleine `GitToRaw`
+    - Drag "Copy Data" activity and name it as `CopyRawData`
+        - In "source" tab, create new data source `http` and file format as `csv` ---> Name: `ds_http`
+            - Linked service: select `httplinkedservice`
+            - Relative URL: `lokesh-venkata-sai/Adventure_works_Data_Engineering_Pipeline/refs/heads/main/Data/AdventureWorks_Products.csv`
+            - click OK
+        - In "sink" tab, create a new sink data source `Azure Data Lake Storage Gen2` and format as `csv` ---> Name: `ds_raw`
             - Linked service: `datalakelinkedservice`
-            - File path: Browse the `git.json` file
-            - Uncheck "First row only"
-        - Connect "Lookup" activity On success to "For each"
-        
-            ![alt text](linking.png)
-        
-        - Drag "ForEach" activity and name it as `ForEachGit`
-            - In settings tab, check the box Sequential
-            - Items: Add dynamic content --> select LookupGit value array --> OK
-        - Now, cut the `DynamicCopyRawData` activity --> select `ForEachGit` activity --> Inside activities tab --> click on pencil symbol --> (now we are inside foreach activity) paste `DynamicCopyRawData` activity
-        - Now, select Copy Data Activity
-            - Inside source tab --> `p_rel_url` Add dynamic content --> `@item().p_rel_url` (p_rel_url: parameter inside json file) --> OK
-            - Do the same for other two parameters accordingly in Sink tab
-    - Now, click on "Debug" to run the pipeline. 
-    - You can check that files will be present inside the data lake storage.
+            - File path: `bronze`/`products`/`products.csv`
+    - Click on "Debug" --> To run the pipeline
+- "Publish all"
+
+    ![Publish Pipeline](publish.png)
+
+- since we have around 10 files we need to create 10 different pipelines. But this is not a standard approach. We should create a Dynamic pipeline.
+
+#### Setup Dynamic Pipeline
+
+- In Author tab: create a pipleine `DynamicGitToRaw`
+    - Drag "Copy Data" activity and name it as `DynamicCopyRawData`
+        - In "source" tab, create new data source `http` and file format as `csv` ---> Name: `ds_http_dynamic`
+            - Linked service: select `httplinkedservice`
+            - In Advanced: Click on "Open this dataset"
+            - Relative URL --> Add Dynamic content
+            - Create a new parameter `p_rel_url` of `string` type
+            - click on `p_rel_url` and OK
+        - In "sink" tab, create a new sink data source `Azure Data Lake Storage Gen2` and format as `csv` ---> Name: `ds_raw_dynamic`
+            - Linked service: `datalakelinkedservice`
+            - In Advanced: Click on "Open this dataset"
+            - File path: file system -> `bronze`
+            - Directory -> add dynamic content -> Create a new parameter `p_sink_folder` of `string` type
+            - File name -> add dynamic content -> Create a new parameter `p_file_name` of `string` type
+        ![Dynamic Filenames Configuration](dynamic_filenames.png)
+        - Now if we see the source, sink tab in total we need to provide 3 parameters as inputs for copy activity `p_rel_url`, `p_sink_folder`, `p_file_name`
+    - Before proceeding further let's upload a `git.json` file to azure in data lake storage by creating a `parameters` container
+    - Drag "lookup" acticity and name as `LookupGit`
+        - In settings, create a new sink data source `Azure Data Lake Storage Gen2` and format as `json` ---> Name: `ds_git_parameters`
+        - Linked service: `datalakelinkedservice`
+        - File path: Browse the `git.json` file
+        - Uncheck "First row only"
+    - Connect "Lookup" activity On success to "For each"
+    
+        ![Activity Linking](linking.png)
+    
+    - Drag "ForEach" activity and name it as `ForEachGit`
+        - In settings tab, check the box Sequential
+        - Items: Add dynamic content --> select LookupGit value array --> OK
+    - Now, cut the `DynamicCopyRawData` activity --> select `ForEachGit` activity --> Inside activities tab --> click on pencil symbol --> (now we are inside foreach activity) paste `DynamicCopyRawData` activity
+    - Now, select Copy Data Activity
+        - Inside source tab --> `p_rel_url` Add dynamic content --> `@item().p_rel_url` (p_rel_url: parameter inside json file) --> OK
+        - Do the same for other two parameters accordingly in Sink tab
+- Now, click on "Debug" to run the pipeline. 
+- You can check that files will be present inside the data lake storage.
 
 ### Azure Databricks (Silver Layer)
 
-Create Azure Databricks resource --> `adb-aw-project`
-
-- Pricing Tier: Trail (14 days Free)
-- Managed Resource group name: `managed-adb-aw-project`
-- Click Create
-
-- In compute Tab, click on + to create compute
+- **Create Azure Databricks Workspace**: `adb-aw-project`
+  - Pricing Tier: Trail (14 days Free)
+  - Managed Resource group name: `managed-adb-aw-project`
+  - Click Create
+  - In compute Tab, click on + to create compute
     - Cluster Name: `AWProjectCluster`
     - Single Node
     - Access mode: No isolation shared
@@ -108,7 +118,7 @@ Create Azure Databricks resource --> `adb-aw-project`
     - Uncheck "Use Photon Acceleration"
     - Terminate After: 20
 
-- Now, we need to setup permissions for databricks to access the data lake
+- **Permissions Setup**: Now, we need to setup permissions for databricks to access the data lake
     - First way: we can use microsoft entra ID to create an service application to be kept in between Databricks and datalake
     - Another way: We can use azure storage access key to access data lake
         - Run this code in notebook
@@ -117,14 +127,15 @@ Create Azure Databricks resource --> `adb-aw-project`
             "fs.azure.account.key.<storage-account>.dfs.core.windows.net", "<storage-account-access-key>"
         )
 
-- In Workspace Tab, create a folder `AW_Project`
-- In `AW_Project`, create a notebook `silver_layer`
-    - In top, connect to cluster `AWProjectCluster`
-    - Now write a code for transformations and then write the transformed data into `silver` container of datalake storage `lmamidiawstorage`
-    - refer to `Scripts/silver_layer.ipynb` file for code
+- **Tranformations**: In Workspace Tab, create a folder `AW_Project`
+    - In `AW_Project`, create a notebook `silver_layer`
+        - In top, connect to cluster `AWProjectCluster`
+        - Now write a code for transformations and then write the transformed data into `silver` container of datalake storage `lmamidiawstorage`
+        - refer to `Scripts/silver_layer.ipynb` file for code
 
 ### Synapse Analytics  (For Gold Layer)
-- Now, create a resource --> Azure Synapse Analytics
+
+- **Setup**: Now, create a resource --> Azure Synapse Analytics
     - Resource group: `AWPROJECT`
     - Managed resource group: `rg-managed-awproject-synapse`
     - Workspace name: `lmamidi-awproject-synapse`
@@ -134,10 +145,10 @@ Create Azure Databricks resource --> `adb-aw-project`
     - Click Next
     - In security tab, 
         - SQl Server admin login name: `adminlokesh`
-        - SQL pwd: <some-password>
+        - SQL pwd: `<some-password>`
     - Create
 
-- Connect Azure Synapse Analytics to Data Lake
+- **Data Lake Connection**: Connect Azure Synapse Analytics to Data Lake
     - Go to data lake storage --> Access Control (IAM) -->
 (+) Add Role Assignment --> Select Role `Storage Blob Data Contributor`
     - Next, Select "Managed Identity"
@@ -150,7 +161,7 @@ Create Azure Databricks resource --> `adb-aw-project`
 (+) Add Role Assignment --> Select Role `Storage Blob Data Contributor`
     - Next, Select "User, group, or service principal"
     - Members: + Select Members
-        - select <your-azure-account-emailID>
+        - select `<your-azure-account-emailID>`
     - Review + Assign
 
 - In Azure Synapse Analytics
@@ -185,6 +196,8 @@ Create Azure Databricks resource --> `adb-aw-project`
         - Refer to `create_exteral_table.sql` file for code
         - Now, we create external tables using `CETAS` from views we have created
 
+### Visualization with Power BI
+
 - Now, Install Power BI Desktop
 - Connect Power BI to the data
     - Get serverless SQL Endpoint from azure synapse resource
@@ -196,5 +209,10 @@ Create Azure Databricks resource --> `adb-aw-project`
 ### Sample Power BI report
 ![alt text](pbi.png)
     
+## Recommendations
+
+- **Version Control**: Use Git for source code management.
+- **Continuous Integration/Continuous Deployment (CI/CD)**: Set up CI/CD pipelines to automate deployment and testing.
+- **Data Quality Checks**: Implement data quality frameworks to ensure accuracy and reliability of the data pipeline.
 
 
